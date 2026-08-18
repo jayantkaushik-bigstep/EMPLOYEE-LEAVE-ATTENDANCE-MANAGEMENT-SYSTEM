@@ -12,8 +12,6 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
-  console.error(err);
-
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       success: false,
@@ -23,6 +21,18 @@ export const errorHandler = (
       },
     });
   }
+
+  if (err && typeof err.statusCode === "number") {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message || "Request failed",
+      error: {
+        code: err.code ?? "REQUEST_ERROR",
+      },
+    });
+  }
+
+  console.error(err);
 
   return res.status(500).json({
     success: false,
