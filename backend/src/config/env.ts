@@ -28,18 +28,21 @@ export const env = {
 
   // Falls back to a local MongoDB instance if MONGO_URI isn't set,
   // so local dev works out of the box.
-  MONGO_URI: optionalEnv("MONGO_URI", "mongodb://127.0.0.1:27017/leave_attendance_db"),
+  MONGO_URI: optionalEnv(
+    "MONGO_URI",
+    "mongodb://127.0.0.1:27017/leave_attendance_db",
+  ),
 
   JWT_SECRET: optionalEnv("JWT_SECRET", "dev_secret_change_me"),
 
   // Attendance policy — placeholder defaults, finalize with actual HR policy.
   ATTENDANCE_LATE_CUTOFF_MINUTES: parseInt(
     optionalEnv("ATTENDANCE_LATE_CUTOFF_MINUTES", "570"), // 9:30 AM local
-    10
+    10,
   ),
   ATTENDANCE_MIN_MINUTES_FULL_DAY: parseInt(
     optionalEnv("ATTENDANCE_MIN_MINUTES_FULL_DAY", "240"), // 4 hours
-    10
+    10,
   ),
   ATTENDANCE_WEEKEND_DAYS: optionalEnv("ATTENDANCE_WEEKEND_DAYS", "0,6"), // Sun,Sat
 };

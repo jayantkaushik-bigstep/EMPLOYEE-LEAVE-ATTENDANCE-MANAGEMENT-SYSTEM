@@ -20,8 +20,7 @@ const swaggerDefinition: swaggerJsdoc.SwaggerDefinition = {
         type: "http",
         scheme: "bearer",
         bearerFormat: "JWT",
-        description:
-          "Not enforced on any route yet — auth middleware is still in development. Documented in advance so routes can be marked with `security` once it lands.",
+        description: "JWT Bearer Token header: 'Bearer <token>'",
       },
     },
     schemas: {
@@ -105,13 +104,113 @@ const swaggerDefinition: swaggerJsdoc.SwaggerDefinition = {
           updatedAt: { type: "string", format: "date-time" },
         },
       },
+      LeaveType: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          name: { type: "string", example: "Annual Leave" },
+          code: { type: "string", example: "AL" },
+          annualQuota: { type: "number", example: 18 },
+          rules: {
+            type: "object",
+            properties: {
+              allowNegativeBalance: { type: "boolean", example: false },
+              excludeWeekends: { type: "boolean", example: true },
+              excludeMandatoryHolidays: { type: "boolean", example: true },
+              allowHalfDay: { type: "boolean", example: false },
+              allowCancellation: { type: "boolean", example: true },
+              maxConsecutiveDays: { type: "number", example: 15 },
+              minNoticeDays: { type: "number", example: 2 },
+            },
+          },
+          status: { type: "string", enum: ["ACTIVE", "INACTIVE"], example: "ACTIVE" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      LeaveBalance: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          employeeId: { type: "string" },
+          leaveTypeId: { type: "string" },
+          year: { type: "integer", example: 2026 },
+          allocated: { type: "number", example: 18 },
+          used: { type: "number", example: 4 },
+          available: { type: "number", example: 14 },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      LeaveRequest: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          employeeId: { type: "string" },
+          leaveTypeId: { type: "string" },
+          fromDate: { type: "string", example: "2026-08-18" },
+          toDate: { type: "string", example: "2026-08-20" },
+          days: { type: "number", example: 3 },
+          reason: { type: "string", example: "Vacation trip" },
+          status: {
+            type: "string",
+            enum: ["PENDING", "APPROVED", "REJECTED", "CANCELLED"],
+            example: "PENDING",
+          },
+          approvedBy: { type: "string", nullable: true },
+          approvedAt: { type: "string", format: "date-time", nullable: true },
+          rejectedBy: { type: "string", nullable: true },
+          rejectedAt: { type: "string", format: "date-time", nullable: true },
+          rejectionReason: { type: "string", nullable: true },
+          cancelledBy: { type: "string", nullable: true },
+          cancelledAt: { type: "string", format: "date-time", nullable: true },
+          cancellationReason: { type: "string", nullable: true },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      Holiday: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          date: { type: "string", example: "2026-08-15" },
+          name: { type: "string", example: "Independence Day" },
+          type: {
+            type: "string",
+            enum: ["MANDATORY", "OPTIONAL"],
+            example: "MANDATORY",
+          },
+          status: {
+            type: "string",
+            enum: ["ACTIVE", "INACTIVE"],
+            example: "ACTIVE",
+          },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      AuditLog: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          actorId: { type: "string" },
+          action: { type: "string", example: "LEAVE_APPROVED" },
+          entityType: { type: "string", example: "LeaveRequest" },
+          entityId: { type: "string" },
+          oldValue: { type: "object" },
+          newValue: { type: "object" },
+          metadata: { type: "object" },
+          ipAddress: { type: "string" },
+          userAgent: { type: "string" },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
     },
   },
 };
 
 const options: swaggerJsdoc.Options = {
   swaggerDefinition,
-  // Scans JSDoc `@swagger` comment blocks in every route file.
   apis: ["./src/routes/*.ts"],
 };
 
