@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-
+import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import {
   checkInService,
   checkOutService,
@@ -87,7 +87,7 @@ export const getAttendanceList = async (
 };
 
 export const getMonthlySummary = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -95,10 +95,25 @@ export const getMonthlySummary = async (
     const year = Number(req.query.year) || new Date().getFullYear();
     const month = Number(req.query.month) || new Date().getMonth() + 1;
 
+    // Use param employeeId or query employeeId or fallback to authenticated user
+    const targetEmployeeId =
+      (req.params.employeeId as string) ||
+      (req.query.employeeId as string) ||
+      req.user?.userId;
+
+    if (!targetEmployeeId) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee ID is required",
+        error: { code: "MISSING_EMPLOYEE_ID" },
+      });
+    }
+
     const summary = await getMonthlyAttendanceSummaryService(
-      req.params.employeeId as string,
+      targetEmployeeId,
       year,
-      month
+      month,
+      req.user
     );
 
     return res.status(200).json({

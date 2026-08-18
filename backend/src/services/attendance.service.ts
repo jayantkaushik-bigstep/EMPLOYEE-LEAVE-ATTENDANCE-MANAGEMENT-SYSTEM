@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
-
 import { AppError } from "../errors/app-error";
 import { env } from "../config/env";
+import { Employee, IEmployee } from "../models/employee.model";
 import { findEmployeeById } from "../repositories/employee.repository";
 import {
   createAttendance,
@@ -10,15 +10,18 @@ import {
   findAttendanceRecords,
   updateAttendance,
 } from "../repositories/attendance.repository";
+import { findHolidaysInRange } from "../repositories/holiday.repository";
 import {
   getLocalDateString,
+  getLocalDayOfWeek,
   getLocalMinutesSinceMidnight,
-  getWorkingDaysInMonth,
+  isWeekendDay,
 } from "../utils/timezone.util";
+import { JwtPayload } from "../types/auth.types";
 
 const WEEKEND_DAYS = env.ATTENDANCE_WEEKEND_DAYS.split(",").map(Number);
 
-const assertValidEmployee = async (employeeId: string) => {
+const assertValidEmployee = async (employeeId: string): Promise<IEmployee> => {
   if (!Types.ObjectId.isValid(employeeId)) {
     throw new AppError("Invalid employee id", 400, "INVALID_EMPLOYEE_ID");
   }
@@ -62,7 +65,7 @@ export const checkInService = async (employeeId: string) => {
       : "PRESENT";
 
   const attendance = await createAttendance({
-    employeeId: employee._id,
+    employeeId: employee._id as Types.ObjectId,
     date: localDate,
     checkInAt: now,
     status,
@@ -100,7 +103,6 @@ export const checkOutService = async (employeeId: string) => {
   }
 
   if (now < record.checkInAt) {
-    // Defensive only — shouldn't be reachable through this flow.
     throw new AppError(
       "Check-out time cannot be before check-in time",
       400,
@@ -111,9 +113,6 @@ export const checkOutService = async (employeeId: string) => {
   const workedMinutes =
     (now.getTime() - record.checkInAt.getTime()) / 60000;
 
-  // Placeholder policy: short days get downgraded to HALF_DAY regardless
-  // of whether check-in was PRESENT or LATE. Revisit once HR confirms
-  // the actual half-day rule.
   const status =
     workedMinutes < env.ATTENDANCE_MIN_MINUTES_FULL_DAY
       ? "HALF_DAY"
@@ -159,49 +158,106 @@ export const getAttendanceListService = async (
 };
 
 export const getMonthlyAttendanceSummaryService = async (
-  employeeId: string,
+  targetEmployeeId: string,
   year: number,
-  month: number // 1-12
+  month: number, // 1-12
+  user?: JwtPayload
 ) => {
-  await assertValidEmployee(employeeId);
+  const employee = await assertValidEmployee(targetEmployeeId);
 
-  const fromDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const toDate = `${year}-${String(month).padStart(2, "0")}-${String(
-    lastDay
-  ).padStart(2, "0")}`;
-
-  const records = await findAttendanceInRange(employeeId, fromDate, toDate);
-
-  // Holiday exclusion intentionally not applied yet — see module notes.
-  const workingDays = getWorkingDaysInMonth(year, month, WEEKEND_DAYS);
-
-  const counts = {
-    presentDays: 0,
-    lateDays: 0,
-    halfDays: 0,
-    leaveDays: 0,
-    absentDays: 0,
-  };
-
-  for (const record of records) {
-    if (record.status === "PRESENT") counts.presentDays++;
-    else if (record.status === "LATE") counts.lateDays++;
-    else if (record.status === "HALF_DAY") counts.halfDays++;
-    else if (record.status === "LEAVE") counts.leaveDays++;
+  // Authorization check if user context is provided
+  if (user) {
+    if (user.role === "EMPLOYEE") {
+      if (employee._id.toString() !== user.userId) {
+        throw new AppError(
+          "You do not have permission to view this employee's attendance summary",
+          403,
+          "FORBIDDEN"
+        );
+      }
+    } else if (user.role === "MANAGER") {
+      const isSelf = employee._id.toString() === user.userId;
+      const isDirectReport = employee.managerId?.toString() === user.userId;
+      if (!isSelf && !isDirectReport) {
+        throw new AppError(
+          "Managers can only view attendance summary for their direct reports",
+          403,
+          "FORBIDDEN"
+        );
+      }
+    }
   }
 
-  const accountedDays =
-    counts.presentDays + counts.lateDays + counts.halfDays + counts.leaveDays;
+  const monthStr = String(month).padStart(2, "0");
+  const fromDate = `${year}-${monthStr}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const toDate = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}`;
 
-  counts.absentDays = Math.max(workingDays - accountedDays, 0);
+  // 1. Fetch holidays in this month
+  const holidays = await findHolidaysInRange(fromDate, toDate, true);
+  const holidayDateSet = new Set(
+    holidays.filter((h) => h.type === "MANDATORY").map((h) => h.date)
+  );
+
+  // 2. Count calendar days, weekends, holidays, working days
+  let weekendsCount = 0;
+  let holidaysCount = 0;
+  let workingDaysCount = 0;
+
+  for (let d = 1; d <= lastDay; d++) {
+    const dateStr = `${year}-${monthStr}-${String(d).padStart(2, "0")}`;
+    const isWk = isWeekendDay(dateStr, WEEKEND_DAYS);
+    if (isWk) {
+      weekendsCount++;
+    } else if (holidayDateSet.has(dateStr)) {
+      holidaysCount++;
+    } else {
+      workingDaysCount++;
+    }
+  }
+
+  // 3. Query attendance records in this date range
+  const records = await findAttendanceInRange(
+    targetEmployeeId,
+    fromDate,
+    toDate
+  );
+
+  let present = 0;
+  let late = 0;
+  let halfDay = 0;
+  let leave = 0;
+
+  for (const record of records) {
+    if (record.status === "PRESENT") present++;
+    else if (record.status === "LATE") late++;
+    else if (record.status === "HALF_DAY") halfDay++;
+    else if (record.status === "LEAVE") leave++;
+  }
+
+  const accountedDays = present + late + halfDay + leave;
+  const absent = Math.max(workingDaysCount - accountedDays, 0);
+
+  // Attendance credit = present + late + (halfDay * 0.5)
+  const attendanceCredit = present + late + halfDay * 0.5;
+  const attendancePercentage =
+    workingDaysCount > 0
+      ? Number(((attendanceCredit / workingDaysCount) * 100).toFixed(2))
+      : 100;
 
   return {
-    employeeId,
+    employeeId: targetEmployeeId,
     year,
     month,
-    workingDays,
-    ...counts,
-    holidaysExcluded: false, // flips to true once Holiday module is wired in
+    workingDays: workingDaysCount,
+    present,
+    late,
+    halfDay,
+    leave,
+    absent,
+    holidays: holidaysCount,
+    weekends: weekendsCount,
+    attendancePercentage: Math.min(100, attendancePercentage),
+    holidaysExcluded: true,
   };
 };
